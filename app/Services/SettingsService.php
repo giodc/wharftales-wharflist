@@ -6,6 +6,7 @@ use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 
 class SettingsService
 {
@@ -147,5 +148,32 @@ class SettingsService
     public function timezone(): string
     {
         return (string) $this->get('timezone', config('app.timezone', 'UTC'));
+    }
+
+    public function emailLogoUrl(): ?string
+    {
+        $logo = $this->get('email_logo');
+
+        if (blank($logo)) {
+            return null;
+        }
+
+        $logo = (string) $logo;
+
+        if (str_starts_with($logo, 'http://') || str_starts_with($logo, 'https://')) {
+            return $logo;
+        }
+
+        return Storage::disk('public')->url($logo);
+    }
+
+    /**
+     * @return 'left'|'center'|'right'
+     */
+    public function emailLogoPosition(): string
+    {
+        $position = (string) $this->get('email_logo_position', 'left');
+
+        return in_array($position, ['left', 'center', 'right'], true) ? $position : 'left';
     }
 }

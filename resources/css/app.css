@@ -47,6 +47,13 @@
     }
 }
 
+::file-selector-button {
+    margin-inline-end: 4px;
+    padding: 4px 12px;
+    border: 1px solid #f2f2f2;
+    border-radius: 4px;
+}
+
 [data-flux-field]:not(ui-radio, ui-checkbox) {
     @apply grid gap-2;
 }

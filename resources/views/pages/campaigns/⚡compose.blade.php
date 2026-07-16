@@ -205,7 +205,9 @@ new #[Title('Compose campaign')] class extends Component {
 
             <div>
                 <flux:label>{{ __('Body') }}</flux:label>
-                <div wire:ignore id="quill-editor" class="mt-2 min-h-64 rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900"></div>
+                <div wire:ignore class="mt-2">
+                    <div id="quill-editor" class="min-h-64 rounded-b-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900"></div>
+                </div>
                 @error('body') <flux:text class="mt-1 text-red-500">{{ $message }}</flux:text> @enderror
             </div>
 

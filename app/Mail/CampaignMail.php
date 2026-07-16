@@ -10,7 +10,6 @@ use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Storage;
 
 class CampaignMail extends Mailable
 {
@@ -34,21 +33,13 @@ class CampaignMail extends Mailable
         $settings = app(SettingsService::class);
         $body = str_replace('{{UNSUBSCRIBE_LINK}}', $this->unsubscribeUrl, $this->campaign->body);
 
-        $logoUrl = null;
-        $logoPath = $settings->get('email_logo');
-
-        if (filled($logoPath)) {
-            $logoUrl = str_starts_with((string) $logoPath, 'http')
-                ? $logoPath
-                : Storage::disk('public')->url((string) $logoPath);
-        }
-
         return new Content(
             view: 'mail.campaign',
             with: [
                 'bodyHtml' => $body,
                 'siteName' => $settings->siteName(),
-                'logoUrl' => $logoUrl,
+                'logoUrl' => $settings->emailLogoUrl(),
+                'logoAlign' => $settings->emailLogoPosition(),
                 'footerCompany' => $settings->get('footer_company'),
                 'footerAddress' => $settings->get('footer_address'),
                 'footerCity' => $settings->get('footer_city'),

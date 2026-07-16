@@ -21,23 +21,61 @@ new #[Title('Mail settings')] class extends Component {
     public string $plunk_api_url = 'https://api.useplunk.com';
     public string $plunk_api_endpoint = '/v1/send';
     public bool $has_plunk_api_key = false;
+    public bool $has_smtp_pass = false;
+    public bool $smtp_from_env = false;
+    public bool $plunk_from_env = false;
+    public bool $plunk_key_only_from_env = false;
     public int $emails_per_batch = 50;
     public int $delay_between_emails = 0;
 
     public function mount(SettingsService $settings): void
     {
-        $this->mail_mailer = (string) $settings->get('mail_mailer', 'smtp');
+        $this->smtp_from_env = $this->smtpConfiguredInEnv();
+        $this->plunk_from_env = $this->plunkConfiguredInEnv();
+
+        $defaultMailer = config('mail.default') === 'plunk' ? 'plunk' : 'smtp';
+
+        $this->mail_mailer = (string) $settings->get('mail_mailer', $defaultMailer);
         $this->smtp_host = (string) $settings->get('smtp_host', '');
         $this->smtp_port = (string) $settings->get('smtp_port', '587');
         $this->smtp_user = (string) $settings->get('smtp_user', '');
-        $this->smtp_pass = (string) $settings->get('smtp_pass', '');
+        $this->smtp_pass = '';
+        $this->has_smtp_pass = filled($settings->get('smtp_pass'))
+            || ($this->smtp_from_env && filled(config('mail.mailers.smtp.password')));
         $this->smtp_from = (string) $settings->get('smtp_from', '');
-        $this->has_plunk_api_key = filled($settings->get('plunk_api_key') ?: config('plunk.api_key'));
+        $this->refreshPlunkKeyFlags($settings);
         $this->plunk_api_key = '';
         $this->plunk_api_url = (string) $settings->get('plunk_api_url', config('plunk.api_url', 'https://api.useplunk.com'));
         $this->plunk_api_endpoint = (string) $settings->get('plunk_api_endpoint', config('plunk.endpoint', '/v1/send'));
         $this->emails_per_batch = (int) $settings->get('emails_per_batch', 50);
         $this->delay_between_emails = (int) $settings->get('delay_between_emails', 0);
+    }
+
+    protected function refreshPlunkKeyFlags(SettingsService $settings): void
+    {
+        $savedKey = $settings->get('plunk_api_key');
+        $envKey = config('plunk.api_key');
+
+        $this->has_plunk_api_key = filled($savedKey ?: $envKey);
+        $this->plunk_key_only_from_env = blank($savedKey) && filled($envKey);
+    }
+
+    protected function smtpConfiguredInEnv(): bool
+    {
+        return config('mail.default') === 'smtp'
+            && filled(config('mail.mailers.smtp.host'));
+    }
+
+    protected function plunkConfiguredInEnv(): bool
+    {
+        return filled(config('plunk.api_key'));
+    }
+
+    protected function smtpHostAvailable(SettingsService $settings, ?string $formHost = null): bool
+    {
+        return filled($formHost)
+            || filled($settings->get('smtp_host'))
+            || $this->smtpConfiguredInEnv();
     }
 
     public function save(SettingsService $settings): void
@@ -56,7 +94,7 @@ new #[Title('Mail settings')] class extends Component {
             'delay_between_emails' => ['required', 'integer', 'min:0', 'max:60'],
         ]);
 
-        if ($validated['mail_mailer'] === 'smtp' && blank($validated['smtp_host'])) {
+        if ($validated['mail_mailer'] === 'smtp' && ! $this->smtpHostAvailable($settings, $validated['smtp_host'])) {
             $this->addError('smtp_host', __('SMTP host is required when using SMTP.'));
 
             return;
@@ -84,8 +122,11 @@ new #[Title('Mail settings')] class extends Component {
             'delay_between_emails' => $validated['delay_between_emails'],
         ]);
 
+        $this->smtp_pass = '';
         $this->plunk_api_key = '';
-        $this->has_plunk_api_key = filled($settings->get('plunk_api_key') ?: config('plunk.api_key'));
+        $this->has_smtp_pass = filled($settings->get('smtp_pass'))
+            || ($this->smtp_from_env && filled(config('mail.mailers.smtp.password')));
+        $this->refreshPlunkKeyFlags($settings);
 
         Flux::toast(variant: 'success', text: __('Mail settings saved.'));
     }
@@ -104,7 +145,7 @@ new #[Title('Mail settings')] class extends Component {
             return;
         }
 
-        if ($this->mail_mailer === 'smtp' && blank($this->smtp_host)) {
+        if ($this->mail_mailer === 'smtp' && ! $this->smtpHostAvailable($settings, $this->smtp_host)) {
             Flux::toast(variant: 'danger', text: __('Configure SMTP host before sending a test.'));
 
             return;
@@ -136,21 +177,48 @@ new #[Title('Mail settings')] class extends Component {
             @if ($mail_mailer === 'smtp')
                 <flux:separator />
                 <flux:heading size="sm">{{ __('SMTP') }}</flux:heading>
+
+                @if ($smtp_from_env)
+                    <flux:callout
+                        variant="success"
+                        icon="check-circle"
+                        :heading="__('SMTP is already configured in .env')"
+                        :text="__('MAIL_* values are set. Leave fields blank to keep using them, or enter values here to override.')"
+                    />
+                @endif
+
                 <flux:input wire:model="smtp_host" :label="__('SMTP host')" placeholder="smtp.example.com" />
                 <flux:input wire:model="smtp_port" :label="__('SMTP port')" type="number" />
                 <flux:input wire:model="smtp_user" :label="__('SMTP username')" />
-                <flux:input wire:model="smtp_pass" :label="__('SMTP password')" type="password" viewable placeholder="••••••••" />
+                <flux:input
+                    wire:model="smtp_pass"
+                    :label="__('SMTP password')"
+                    type="password"
+                    viewable
+                    :placeholder="$has_smtp_pass ? '••••••••' : null"
+                    :description="$has_smtp_pass ? __('Leave blank to keep the existing password.') : null"
+                />
             @else
                 <flux:separator />
                 <flux:heading size="sm">{{ __('Plunk') }}</flux:heading>
                 <flux:subheading>{{ __('Optional alternative to SMTP. Works with Plunk cloud or self-hosted. You can also set PLUNK_* in .env.') }}</flux:subheading>
+
+                @if ($plunk_from_env)
+                    <flux:callout
+                        variant="success"
+                        icon="check-circle"
+                        :heading="__('Plunk is already configured in .env')"
+                        :text="__('PLUNK_API_KEY is set. Leave the API key blank to keep using it, or enter a new key here to override.')"
+                    />
+                @endif
+
                 <flux:input
                     wire:model="plunk_api_key"
                     :label="__('API key')"
                     type="password"
                     viewable
                     :placeholder="$has_plunk_api_key ? '••••••••' : 'sk_…'"
-                    :description="$has_plunk_api_key ? __('Leave blank to keep the saved key.') : null"
+                    :description="$has_plunk_api_key ? ($plunk_key_only_from_env ? __('Leave blank to keep the key from .env.') : __('Leave blank to keep the saved key.')) : null"
                 />
                 <flux:input wire:model="plunk_api_url" :label="__('API URL')" placeholder="https://api.useplunk.com" />
                 <flux:input wire:model="plunk_api_endpoint" :label="__('Send endpoint')" placeholder="/v1/send" description="{{ __('Cloud: /v1/send · Self-hosted: /api/v1/send') }}" />
